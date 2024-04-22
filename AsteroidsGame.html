@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asteroids Game</title>
+  <style>
+    canvas {
+      border: 1px solid #000;
+      display: block;
+      margin: 20px auto;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="1000" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Ship
+    const ship = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      width: 10,
+      height: 15,
+      angle: 0,
+      speed: 5
+    };
+
+    // Laser class
+    class Laser {
+      constructor(x, y, angle) {
+        this.x = x;
+        this.y = y;
+        this.angle = angle;
+        this.speed = 8;
+        this.width = 2;
+        this.height = 10;
+      }
+
+      move() {
+        this.x += this.speed * Math.sin(this.angle);
+        this.y -= this.speed * Math.cos(this.angle);
+      }
+
+      draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+        ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
+        ctx.restore();
+      }
+    }
+
+    // Asteroid class
+    class Asteroid {
+      constructor(x, y, radius, speed, angle, splitsRemaining) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.speed = speed;
+        this.angle = angle;
+        this.isSplit = false;
+        this.splitsRemaining = splitsRemaining;
+      }
+
+      move() {
+        this.x += this.speed * Math.cos(this.angle);
+        this.y += this.speed * Math.sin(this.angle);
+
+        // Handle asteroid going off-screen by wrapping around
+        if (this.x + this.radius < 0) {
+          this.x = canvas.width + this.radius;
+        } else if (this.x - this.radius > canvas.width) {
+          this.x = -this.radius;
+        }
+
+        if (this.y + this.radius < 0) {
+          this.y = canvas.height + this.radius;
+        } else if (this.y - this.radius > canvas.height) {
+          this.y = -this.radius;
+        }
+
+        // Reset split status when wrapping around
+        this.isSplit = false;
+      }
+
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      split() {
+        // Create two smaller asteroids with slight angle deviation
+        const newSize = this.radius / 2;
+        const deviation = 0.25; // Adjust as needed
+        const asteroid1 = new Asteroid(this.x, this.y, newSize, this.speed, this.angle - deviation, this.splitsRemaining - 1);
+        const asteroid2 = new Asteroid(this.x, this.y, newSize, this.speed, this.angle + deviation, this.splitsRemaining - 1);
+
+        // Update their positions to avoid overlap
+        asteroid1.x += newSize * Math.cos(asteroid1.angle);
+        asteroid1.y += newSize * Math.sin(asteroid1.angle);
+        asteroid2.x += newSize * Math.cos(asteroid2.angle);
+        asteroid2.y += newSize * Math.sin(asteroid2.angle);
+
+        return [asteroid1, asteroid2];
+      }
+    }
+
+    // Arrays for lasers and asteroids
+    const lasers = [];
+    const asteroids = [];
+
+    // Key state
+    const keys = {};
+
+    window.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+
+      // Shoot laser on Space key press
+      if (e.key === ' ') {
+        const laser = new Laser(ship.x, ship.y, ship.angle);
+        lasers.push(laser);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    // Update lasers
+    function updateLasers() {
+      for (const laser of lasers) {
+        laser.move();
+
+        // Remove lasers that go off-screen
+        if (laser.x < 0 || laser.x > canvas.width || laser.y < 0 || laser.y > canvas.height) {
+          lasers.splice(lasers.indexOf(laser), 1);
+        }
+      }
+    }
+
+    // Draw lasers
+    function drawLasers() {
+      for (const laser of lasers) {
+        laser.draw();
+      }
+    }
+
+    // Update asteroids
+    function updateAsteroids() {
+      for (const asteroid of asteroids) {
+        asteroid.move();
+      }
+    }
+
+    // Draw asteroids
+    function drawAsteroids() {
+      for (const asteroid of asteroids) {
+        asteroid.draw();
+      }
+    }
+
+    // Check for collisions (laser with asteroids)
+    function checkLaserAsteroidCollisions() {
+      for (const laser of lasers) {
+        for (let i = asteroids.length - 1; i >= 0; i--) {
+          const asteroid = asteroids[i];
+          const dx = laser.x - asteroid.x;
+          const dy = laser.y - asteroid.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < asteroid.radius) {
+            // Laser hit an asteroid
+            if (!asteroid.isSplit) {
+              if (asteroid.splitsRemaining > 0) {
+                // Split the asteroid into two smaller ones
+                const newAsteroids = asteroid.split();
+                asteroids.splice(i, 1, ...newAsteroids);
+                asteroid.isSplit = true; // Mark the original asteroid as split to avoid continuous splitting
+              } else {
+                // Remove the asteroid if no more splits are allowed
+                asteroids.splice(i, 1);
+              }
+            }
+
+            // Remove the laser
+            lasers.splice(lasers.indexOf(laser), 1);
+          }
+        }
+      }
+    }
+
+    // Spontaneously generate two new asteroids near the border every 5 seconds
+    setInterval(() => {
+      for (let i = 0; i < 2; i++) {
+        let x, y, angle;
+        const onBorder = Math.random() < 0.5; // Decide if the asteroid should appear on the border
+        if (onBorder) {
+          // If on the border, randomly choose between top/bottom or left/right
+          const isVertical = Math.random() < 0.5;
+          if (isVertical) {
+            x = Math.random() * canvas.width;
+            y = Math.random() < 0.5 ? -10 : canvas.height + 10;
+            angle = Math.PI / 2; // Point towards the center
+          } else {
+            x = Math.random() < 0.5 ? -10 : canvas.width + 10;
+            y = Math.random() * canvas.height;
+            angle = Math.PI; // Point towards the center
+          }
+
+          const radius = Math.random() * 20 + 10; // Random radius between 10 and 30
+          const speed = Math.random() * 2 + 1; // Random speed between 1 and 3
+
+          const newAsteroid = new Asteroid(x, y, radius, speed, angle, 2); // 2 splits allowed
+          asteroids.push(newAsteroid);
+        }
+      }
+    }, 5000);
+
+    function update() {
+      // Update ship position
+      if (keys['ArrowUp']) {
+        ship.y -= ship.speed * Math.cos(ship.angle);
+        ship.x += ship.speed * Math.sin(ship.angle);
+      }
+
+      if (keys['ArrowDown']) {
+        ship.y += ship.speed * Math.cos(ship.angle);
+        ship.x -= ship.speed * Math.sin(ship.angle);
+      }
+
+      // Rotate ship
+      if (keys['ArrowLeft']) {
+        ship.angle -= 0.1;
+      }
+
+      if (keys['ArrowRight']) {
+        ship.angle += 0.1;
+      }
+
+      // Update lasers
+      updateLasers();
+
+      // Update asteroids
+      updateAsteroids();
+
+      // Check for collisions (ship with asteroids)
+      for (const asteroid of asteroids) {
+        const dx = ship.x - asteroid.x;
+        const dy = ship.y - asteroid.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < ship.width / 2 + asteroid.radius) {
+          alert('Game Over!');
+          document.location.reload();
+        }
+      }
+
+      // Check for collisions (laser with asteroids)
+      checkLaserAsteroidCollisions();
+    }
+
+    function draw() {
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw ship
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.rotate(ship.angle);
+      ctx.beginPath();
+      ctx.moveTo(0, -ship.height / 2);
+      ctx.lineTo(ship.width / 2, ship.height / 2);
+      ctx.lineTo(-ship.width / 2, ship.height / 2);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+
+      // Draw lasers
+      drawLasers();
+
+      // Draw asteroids
+      drawAsteroids();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Initialize asteroids
+    function initializeAsteroids() {
+      for (let i = 0; i < 5; i++) {
+        // Randomly generate asteroid properties
+        const x = Math.random() * canvas.width;
+        const y = Math.random() * canvas.height;
+        const radius = Math.random() * 20 + 10; // Random radius between 10 and 30
+        const speed = Math.random() * 2 + 1; // Random speed between 1 and 3
+        const angle = Math.random() * Math.PI * 2; // Random initial angle
+
+        // Create asteroid object and add to asteroids array
+        const asteroid = new Asteroid(x, y, radius, speed, angle, 2); // 2 splits allowed
+        asteroids.push(asteroid);
+      }
+    }
+
+    initializeAsteroids();
+    gameLoop();
+  </script>
+</body>
+</html>
